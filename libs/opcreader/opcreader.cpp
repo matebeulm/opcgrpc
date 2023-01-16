@@ -1,13 +1,52 @@
 #include "opcreader.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <variant>
 
 #include <asio/ip/host_name.hpp>
 
-opc_reader::opc_reader(std::string init_file_name) {}
+#include <nlohmann/json.hpp>
 
-bool opc_reader::read_ini_file(std::string init_file_name) {}
+opc_reader::opc_reader(std::string t_init_file_name) : init_file_name(t_init_file_name) {}
+
+bool opc_reader::init() {
+  if (!read_ini_file(init_file_name))
+  {
+    return false;
+  }
+  return true;
+}
+
+bool opc_reader::read_ini_file(std::string init_file_name) {
+  auto path = std::filesystem::path(init_file_name);
+  if (!path.is_absolute()) {
+    auto wd = std::filesystem::current_path();
+    path = wd / path;
+  }
+
+  if (!std::filesystem::exists(path)) {
+    spdlog::error("opc_reader: ini file does not exists: {}", path.generic_string());
+    return false;
+  }
+
+  std::ifstream ifs(path);
+
+  nlohmann::json jall;
+  try {
+    jall = nlohmann::json::parse(ifs);
+  } catch (const nlohmann::json::parse_error& e) {
+    spdlog::error("opc_reader: error reading json file");
+    spdlog::error("===============================");
+    spdlog::error("message: {0}", e.what());
+    spdlog::error("exception id:{0}", e.id);
+    spdlog::error("byte position of error: {0}", e.byte);
+    spdlog::error("===============================");
+  }
+
+  return true;
+}
 
 bool opc_reader::connect_to_server() {
   spdlog::info("opc_reader trying to establish connection to server {}", opc_server_name);
@@ -58,12 +97,40 @@ bool opc_reader::connect_to_server() {
   ptr_group = ptr_opc_server->makeGroup(
     "Group", true, static_cast<unsigned long>(query_interval_ms), refresh_rate, 0.0);
   if (refresh_rate != static_cast<unsigned long>(query_interval_ms)) {
-    spdlog::warn("opc_reader: {} requested update rate was {} but got {}", opc_server_name, query_interval_ms, refresh_rate);
+    spdlog::warn("opc_reader: {} requested update rate was {} but got {}", opc_server_name,
+                 query_interval_ms, refresh_rate);
 
     if (refresh_rate > query_interval_ms) {
       query_interval_ms = refresh_rate;
-      spdlog::info("opc_reader: adjusting query interval time to {} milliseconds", query_interval_ms);
+      spdlog::info("opc_reader: adjusting query interval time to {} milliseconds",
+                   query_interval_ms);
     }
+  }
+
+  // add our items to group
+  for (auto data_point : vec_opc_data) {
+    try {
+      COPCItem* new_item = ptr_group->addItem(data_point.name, true);
+      vec_opc_items.push_back(new_item);
+      map_opc_items[new_item] = data_point;
+    } catch (OPCException& ex) {
+      spdlog::warn("opc_reader could not add OPC item <<{}>> reason: {}", data_point.name,
+                   ex.reasonString());
+    }
+  }
+
+  if (vec_opc_data.size() != vec_opc_data.size()) {
+    spdlog::warn("opc_reader only {} out of {} items created", vec_opc_data.size(),
+                 vec_opc_data.size());
+  } else {
+    spdlog::info("opc_reader only {} out of {} items created", vec_opc_data.size(),
+                 vec_opc_data.size());
+  }
+
+  if (vec_opc_items.empty()) {
+    spdlog::error("opc_reader: non of the querry items is available on server!");
+    spdlog::error("opc_reader: shutting down!");
+    return false;
   }
 
   return true;
@@ -185,288 +252,288 @@ void opc_reader::query_server() {}
 //   return true;
 // }
 
-void OPCReader::queryServer() {
-  // nur zur sicherheit
-  if (demoTestDataMode) {
-    // hier kommen daten über den update slot
-    return;
-  }
+// void OPCReader::queryServer() {
+//   // nur zur sicherheit
+//   if (demoTestDataMode) {
+//     // hier kommen daten über den update slot
+//     return;
+//   }
 
-  std::list<std::string> lstNames;
-  std::list<std::string> lstLabels;
-  std::list<std::variant<int, float>> lstData;
+//   std::list<std::string> lstNames;
+//   std::list<std::string> lstLabels;
+//   std::list<std::variant<int, float>> lstData;
 
-  // SYNCED read on Group
-  COPCItem_DataMap opcData;
-  try {
-    spdlog::trace("opc group read of {} items", itemsCreated.size());
-    group->readSync(itemsCreated, opcData, OPC_DS_DEVICE);
-  } catch (OPCException& ex) {
-    spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
-    // QLOG_WARN() << "reading opc items failed: reason:" <<
-    // QString::fromStdString(ex.reasonString());
-    return;
-  }
+//   // SYNCED read on Group
+//   COPCItem_DataMap opcData;
+//   try {
+//     spdlog::trace("opc group read of {} items", itemsCreated.size());
+//     group->readSync(itemsCreated, opcData, OPC_DS_DEVICE);
+//   } catch (OPCException& ex) {
+//     spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
+//     // QLOG_WARN() << "reading opc items failed: reason:" <<
+//     // QString::fromStdString(ex.reasonString());
+//     return;
+//   }
 
-  POSITION pos = opcData.GetStartPosition();
+//   POSITION pos = opcData.GetStartPosition();
 
-  std::map<std::string, std::variant<int, double, std::string>> mapOPCData;
-  std::map<std::string, std::string> mapOPCDataLabels;
-  std::string line_proto = "opc ";
-  while (pos != nullptr) {
-    COPCItem* item = opcData.GetKeyAt(pos);
-    std::string itemName = item->getName();
+//   std::map<std::string, std::variant<int, double, std::string>> mapOPCData;
+//   std::map<std::string, std::string> mapOPCDataLabels;
+//   std::string line_proto = "opc ";
+//   while (pos != nullptr) {
+//     COPCItem* item = opcData.GetKeyAt(pos);
+//     std::string itemName = item->getName();
 
-    if (!mapOpcItems.contains(item)) {
-      continue;
-    }
-    OPCItem opcItem = mapOpcItems.at(item);
-    OPCItemData* data = opcData.GetNextValue(pos);
-    std::variant<int, double, std::string> var;
-    switch (opcItem.dataType) {
-      case OPCDataType::INT:
-      case OPCDataType::WORD:
-        var = data->vDataValue.iVal;
-        spdlog::trace("name: {} --> value: {}", opcItem.name, std::get<int>(var));
-        // QLOG_TRACE() << QString("%1: %2").arg(opcItem.name).arg(var.toInt(), 6);
-        // line_proto.append(fmt::format("{}={},", opcItem.name.toStdString(), var.toInt()));
-        break;
-      case OPCDataType::STRING: {
-        int wslen = ::SysStringLen(data->vDataValue.bstrVal);
-        int len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen, NULL,
-                                        0, NULL, NULL);
+//     if (!mapOpcItems.contains(item)) {
+//       continue;
+//     }
+//     OPCItem opcItem = mapOpcItems.at(item);
+//     OPCItemData* data = opcData.GetNextValue(pos);
+//     std::variant<int, double, std::string> var;
+//     switch (opcItem.dataType) {
+//       case OPCDataType::INT:
+//       case OPCDataType::WORD:
+//         var = data->vDataValue.iVal;
+//         spdlog::trace("name: {} --> value: {}", opcItem.name, std::get<int>(var));
+//         // QLOG_TRACE() << QString("%1: %2").arg(opcItem.name).arg(var.toInt(), 6);
+//         // line_proto.append(fmt::format("{}={},", opcItem.name.toStdString(), var.toInt()));
+//         break;
+//       case OPCDataType::STRING: {
+//         int wslen = ::SysStringLen(data->vDataValue.bstrVal);
+//         int len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen, NULL,
+//                                         0, NULL, NULL);
 
-        std::string dblstr(len, '\0');
-        len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen,
-                                    &dblstr[0], len, NULL, NULL);
-        var = dblstr;
-      }
-        spdlog::trace("name: {} --> value: {}", opcItem.name, std::get<std::string>(var));
-        // QLOG_TRACE() << QString("%1: %2").arg(opcItem.name).arg(var.toString());
-        // line_proto.append(fmt::format("{}={},", opcItem.name.toStdString(),
-        // var.toString().toStdString()));
-        break;
-      case OPCDataType::FLOAT:
-        var = data->vDataValue.fltVal;
-        spdlog::trace("name: {} --> value: {}", opcItem.name, std::get<double>(var));
-        // QLOG_TRACE() << QString("%1: %2").arg(opcItem.name).arg(var.toDouble(), 10, 'f', 4);
-        // line_proto.append(fmt::format("{}={},", opcItem.name.toStdString(), var.toDouble()));
-        break;
-      default:
-        break;
-        // var = QVariant(0);
-    }
+//         std::string dblstr(len, '\0');
+//         len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen,
+//                                     &dblstr[0], len, NULL, NULL);
+//         var = dblstr;
+//       }
+//         spdlog::trace("name: {} --> value: {}", opcItem.name, std::get<std::string>(var));
+//         // QLOG_TRACE() << QString("%1: %2").arg(opcItem.name).arg(var.toString());
+//         // line_proto.append(fmt::format("{}={},", opcItem.name.toStdString(),
+//         // var.toString().toStdString()));
+//         break;
+//       case OPCDataType::FLOAT:
+//         var = data->vDataValue.fltVal;
+//         spdlog::trace("name: {} --> value: {}", opcItem.name, std::get<double>(var));
+//         // QLOG_TRACE() << QString("%1: %2").arg(opcItem.name).arg(var.toDouble(), 10, 'f', 4);
+//         // line_proto.append(fmt::format("{}={},", opcItem.name.toStdString(), var.toDouble()));
+//         break;
+//       default:
+//         break;
+//         // var = QVariant(0);
+//     }
 
-    mapOPCData.insert({opcItem.name, var});
-    mapOPCDataLabels.insert({opcItem.name, opcItem.label});
-    lstNames.emplace_back(opcItem.name);
-    lstLabels.emplace_back(opcItem.label);
-    lstData.emplace_back(var);
+//     mapOPCData.insert({opcItem.name, var});
+//     mapOPCDataLabels.insert({opcItem.name, opcItem.label});
+//     lstNames.emplace_back(opcItem.name);
+//     lstLabels.emplace_back(opcItem.label);
+//     lstData.emplace_back(var);
 
-    spdlog::debug("opc reader: {} = {}", opcItem.name, var);
-    // QLOG_DEBUG() << QString("opc reader") << opcItem.name << var;
-  }
-  // remove last , from trace string
-  line_proto.pop_back();
-  //   auto now = QDateTime::currentDateTime().toMSecsSinceEpoch();
-  //   line_proto.append(fmt::format(" {}000000", now));
-  //   _logger_opc->info(line_proto);
+//     spdlog::debug("opc reader: {} = {}", opcItem.name, var);
+//     // QLOG_DEBUG() << QString("opc reader") << opcItem.name << var;
+//   }
+//   // remove last , from trace string
+//   line_proto.pop_back();
+//   //   auto now = QDateTime::currentDateTime().toMSecsSinceEpoch();
+//   //   line_proto.append(fmt::format(" {}000000", now));
+//   //   _logger_opc->info(line_proto);
 
-  //   emit opcDataUpdate(readerName, lstNames, lstLabels, lstData);
-  //   emit opcAsVariantMap(readerName, mapOPCData, mapOPCDataLabels);
-}
+//   //   emit opcDataUpdate(readerName, lstNames, lstLabels, lstData);
+//   //   emit opcAsVariantMap(readerName, mapOPCData, mapOPCDataLabels);
+// }
 
-void OPCReader::queryServerDemo() {
-  // nur zur sicherheit
-  if (demoTestDataMode) {
-    // hier kommen daten über den update slot
-    return;
-  }
+// void OPCReader::queryServerDemo() {
+//   // nur zur sicherheit
+//   if (demoTestDataMode) {
+//     // hier kommen daten über den update slot
+//     return;
+//   }
 
-  QStringList lstNames;
-  QStringList lstLabels;
-  QVariantList lstData;
+//   QStringList lstNames;
+//   QStringList lstLabels;
+//   QVariantList lstData;
 
-  QVariantMap mapOPCData;
-  QMap<QString, QString> mapOPCDataLabels;
-  QString randomSource("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-  const int strLen = randomSource.length() / 4;
-  std::string line_proto = "opc ";
-  for (auto item : lstOpcItems) {
-    QVariant var;
-    switch (item.dataType) {
-      case OPCDataType::INT:
-      case OPCDataType::BYTE:
-      case OPCDataType::WORD:
-        var = QRandomGenerator::global()->bounded(255);
-        QLOG_DEBUG() << QString("%1: %2").arg(item.name).arg(var.toInt());
-        line_proto.append(fmt::format("{}={},", item.name.toStdString(), var.toInt()));
-        break;
-      case OPCDataType::FLOAT:
-        var = QRandomGenerator::global()->generateDouble();
-        QLOG_DEBUG() << QString("%1: %2").arg(item.name).arg(var.toDouble());
-        line_proto.append(fmt::format("{}={},", item.name.toStdString(), var.toDouble()));
-        break;
-      case OPCDataType::STRING: {
-        QString str;
-        for (int i = 0; i < strLen; i++) {
-          str.append(
-            randomSource.at(QRandomGenerator::global()->bounded(0, randomSource.length() - 1)));
-        }
-        var = str;
-        QLOG_DEBUG() << QString("%1: %2").arg(item.name).arg(var.toString());
-        line_proto.append(
-          fmt::format("{}={},", item.name.toStdString(), var.toString().toStdString()));
-      } break;
-      case OPCDataType::UNKNOWN:
-        QLOG_DEBUG() << QString("%1: >>unkonwn type !!!<<").arg(item.name);
-        break;
-    }
-    if (!var.isNull()) {
-      mapOPCData.insert(item.name, var);
-    }
+//   QVariantMap mapOPCData;
+//   QMap<QString, QString> mapOPCDataLabels;
+//   QString randomSource("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+//   const int strLen = randomSource.length() / 4;
+//   std::string line_proto = "opc ";
+//   for (auto item : lstOpcItems) {
+//     QVariant var;
+//     switch (item.dataType) {
+//       case OPCDataType::INT:
+//       case OPCDataType::BYTE:
+//       case OPCDataType::WORD:
+//         var = QRandomGenerator::global()->bounded(255);
+//         QLOG_DEBUG() << QString("%1: %2").arg(item.name).arg(var.toInt());
+//         line_proto.append(fmt::format("{}={},", item.name.toStdString(), var.toInt()));
+//         break;
+//       case OPCDataType::FLOAT:
+//         var = QRandomGenerator::global()->generateDouble();
+//         QLOG_DEBUG() << QString("%1: %2").arg(item.name).arg(var.toDouble());
+//         line_proto.append(fmt::format("{}={},", item.name.toStdString(), var.toDouble()));
+//         break;
+//       case OPCDataType::STRING: {
+//         QString str;
+//         for (int i = 0; i < strLen; i++) {
+//           str.append(
+//             randomSource.at(QRandomGenerator::global()->bounded(0, randomSource.length() - 1)));
+//         }
+//         var = str;
+//         QLOG_DEBUG() << QString("%1: %2").arg(item.name).arg(var.toString());
+//         line_proto.append(
+//           fmt::format("{}={},", item.name.toStdString(), var.toString().toStdString()));
+//       } break;
+//       case OPCDataType::UNKNOWN:
+//         QLOG_DEBUG() << QString("%1: >>unkonwn type !!!<<").arg(item.name);
+//         break;
+//     }
+//     if (!var.isNull()) {
+//       mapOPCData.insert(item.name, var);
+//     }
 
-    mapOPCDataLabels.insert(item.name, item.label);
-    lstNames.append(item.name);
-    lstLabels.append(item.label);
-    lstData.append(var);
+//     mapOPCDataLabels.insert(item.name, item.label);
+//     lstNames.append(item.name);
+//     lstLabels.append(item.label);
+//     lstData.append(var);
 
-    QLOG_DEBUG() << QString("opc reader") << item.name << var;
-    //        QLOG_DEBUG() << QString("opc reader") << item.name << item.dataType << var;
-  }
+//     QLOG_DEBUG() << QString("opc reader") << item.name << var;
+//     //        QLOG_DEBUG() << QString("opc reader") << item.name << item.dataType << var;
+//   }
 
-  // remove last , from trace string
-  line_proto.pop_back();
-  auto now = QDateTime::currentDateTime().toMSecsSinceEpoch();
-  line_proto.append(fmt::format(" {}000000", now));
-  _logger_opc->info(line_proto);
+//   // remove last , from trace string
+//   line_proto.pop_back();
+//   auto now = QDateTime::currentDateTime().toMSecsSinceEpoch();
+//   line_proto.append(fmt::format(" {}000000", now));
+//   _logger_opc->info(line_proto);
 
-  emit opcDataUpdate(readerName, lstNames, lstLabels, lstData);
-  emit opcAsVariantMap(readerName, mapOPCData, mapOPCDataLabels);
-}
+//   emit opcDataUpdate(readerName, lstNames, lstLabels, lstData);
+//   emit opcAsVariantMap(readerName, mapOPCData, mapOPCDataLabels);
+// }
 
-void OPCReader::startQueryServer(bool canStart) {
-  if (canStart) {
-    QLOG_INFO() << "opc reader: starting to query the server";
-    timerReStart->stop();
-    timerQuery->start();
-  } else {
-    if (!timerReStart->isActive()) {
-      timerReStart->start();
-    }
-  }
-}
+// void OPCReader::startQueryServer(bool canStart) {
+//   if (canStart) {
+//     QLOG_INFO() << "opc reader: starting to query the server";
+//     timerReStart->stop();
+//     timerQuery->start();
+//   } else {
+//     if (!timerReStart->isActive()) {
+//       timerReStart->start();
+//     }
+//   }
+// }
 
-void OPCReader::startOPC() {
-  spdlog::info("opc reader trying to establish connection to server {}", opcServerName);
-  //   QLOG_INFO() << "opc reader: trying to establish connection to opc server" << opcServerName;
-  COPCClient::init();
+// void OPCReader::startOPC() {
+//   spdlog::info("opc reader trying to establish connection to server {}", opcServerName);
+//   //   QLOG_INFO() << "opc reader: trying to establish connection to opc server" << opcServerName;
+//   COPCClient::init();
 
-  // wir verbinden uns immer zu einem server der auf demselben rechner läuft
-  std::string hostName = QHostInfo::localHostName();
-  host = COPCClient::makeHost(hostName.toStdString());
+//   // wir verbinden uns immer zu einem server der auf demselben rechner läuft
+//   std::string hostName = QHostInfo::localHostName();
+//   host = COPCClient::makeHost(hostName.toStdString());
 
-  // list available opc servers
-  std::vector<std::string> localServerList;
-  try {
-    host->getListOfDAServers(IID_CATID_OPCDAServer20, localServerList);
-  } catch (OPCException& ex) {
-    QString strReason = QString::fromStdString(ex.reasonString());
-    QLOG_WARN() << "could not connect to OPC server" << QString::fromStdString(ex.reasonString());
-    emit startOPCInfo(false);
-    return;
-  }
-  if (localServerList.empty()) {
-    QString msg = tr("no opc DA servers available on %1").arg(hostName);
-    if (errorOnHostNotFound) {
-      QLOG_FATAL() << QString("opc reader") << msg;
-    } else {
-      QLOG_WARN() << QString("opc reader") << msg;
-    }
-    emit startOPCInfo(false);
-    return;
-  }
+//   // list available opc servers
+//   std::vector<std::string> localServerList;
+//   try {
+//     host->getListOfDAServers(IID_CATID_OPCDAServer20, localServerList);
+//   } catch (OPCException& ex) {
+//     QString strReason = QString::fromStdString(ex.reasonString());
+//     QLOG_WARN() << "could not connect to OPC server" << QString::fromStdString(ex.reasonString());
+//     emit startOPCInfo(false);
+//     return;
+//   }
+//   if (localServerList.empty()) {
+//     QString msg = tr("no opc DA servers available on %1").arg(hostName);
+//     if (errorOnHostNotFound) {
+//       QLOG_FATAL() << QString("opc reader") << msg;
+//     } else {
+//       QLOG_WARN() << QString("opc reader") << msg;
+//     }
+//     emit startOPCInfo(false);
+//     return;
+//   }
 
-  // gibt es unseren server
-  QStringList lstLocalServers;
-  for (uint i = 0; i < localServerList.size(); i++) {
-    lstLocalServers << QString::fromStdString(localServerList.at(i));
-  }
-  if (!lstLocalServers.contains(opcServerName)) {
-    QString msg = tr("opc server with name %1 not found").arg(opcServerName);
-    if (errorOnHostNotFound) {
-      QLOG_FATAL() << QString("opc reader") << msg;
-    } else {
-      QLOG_WARN() << QString("opc reader") << msg;
-    }
-    emit startOPCInfo(false);
-    return;
-  }
+//   // gibt es unseren server
+//   QStringList lstLocalServers;
+//   for (uint i = 0; i < localServerList.size(); i++) {
+//     lstLocalServers << QString::fromStdString(localServerList.at(i));
+//   }
+//   if (!lstLocalServers.contains(opcServerName)) {
+//     QString msg = tr("opc server with name %1 not found").arg(opcServerName);
+//     if (errorOnHostNotFound) {
+//       QLOG_FATAL() << QString("opc reader") << msg;
+//     } else {
+//       QLOG_WARN() << QString("opc reader") << msg;
+//     }
+//     emit startOPCInfo(false);
+//     return;
+//   }
 
-  // connect to opc server
-  try {
-    opcServer = host->connectDAServer(opcServerName.toStdString());
-  } catch (OPCException& ex) {
-    QString strReason = QString::fromStdString(ex.reasonString());
-    QLOG_WARN() << "could not connect to OPC server" << QString::fromStdString(ex.reasonString());
-    emit startOPCInfo(false);
-    return;
-  }
+//   // connect to opc server
+//   try {
+//     opcServer = host->connectDAServer(opcServerName.toStdString());
+//   } catch (OPCException& ex) {
+//     QString strReason = QString::fromStdString(ex.reasonString());
+//     QLOG_WARN() << "could not connect to OPC server" << QString::fromStdString(ex.reasonString());
+//     emit startOPCInfo(false);
+//     return;
+//   }
 
-  // Check status
-  ServerStatus status;
-  opcServer->getStatus(status);
-  QString strStatus = QString("%1 server state is %2").arg(opcServerName).arg(status.dwServerState);
-  if (status.dwServerState == 1) {
-    strStatus.append(" running");
-  }
-  QLOG_INFO() << QString("opc reader") << strStatus;
+//   // Check status
+//   ServerStatus status;
+//   opcServer->getStatus(status);
+//   QString strStatus = QString("%1 server state is %2").arg(opcServerName).arg(status.dwServerState);
+//   if (status.dwServerState == 1) {
+//     strStatus.append(" running");
+//   }
+//   QLOG_INFO() << QString("opc reader") << strStatus;
 
-  // make group
-  unsigned long refreshRate;
-  group = opcServer->makeGroup("Group", true, static_cast<unsigned long>(queryIntervalMS),
-                               refreshRate, 0.0);
-  if (refreshRate != static_cast<unsigned long>(queryIntervalMS)) {
-    QString msg = tr("%1 requested update rate was %2 but got %3")
-                    .arg(opcServerName)
-                    .arg(queryIntervalMS)
-                    .arg(refreshRate);
-    QLOG_WARN() << QString("opc reader") << msg;
-    if (static_cast<int>(refreshRate) > queryIntervalMS) {
-      queryIntervalMS = static_cast<int>(refreshRate);
-      timerQuery->setInterval(queryIntervalMS);
-      QLOG_INFO() << "opc reader: adjusting query interval time to" << queryIntervalMS
-                  << "milliseconds";
-    }
-  }
+//   // make group
+//   unsigned long refreshRate;
+//   group = opcServer->makeGroup("Group", true, static_cast<unsigned long>(queryIntervalMS),
+//                                refreshRate, 0.0);
+//   if (refreshRate != static_cast<unsigned long>(queryIntervalMS)) {
+//     QString msg = tr("%1 requested update rate was %2 but got %3")
+//                     .arg(opcServerName)
+//                     .arg(queryIntervalMS)
+//                     .arg(refreshRate);
+//     QLOG_WARN() << QString("opc reader") << msg;
+//     if (static_cast<int>(refreshRate) > queryIntervalMS) {
+//       queryIntervalMS = static_cast<int>(refreshRate);
+//       timerQuery->setInterval(queryIntervalMS);
+//       QLOG_INFO() << "opc reader: adjusting query interval time to" << queryIntervalMS
+//                   << "milliseconds";
+//     }
+//   }
 
-  // add our items to group
-  for (int i = 0; i < lstOpcItems.size(); i++) {
-    OPCItem item = lstOpcItems.at(i);
-    std::string myItemName = item.name.toStdString();
-    try {
-      COPCItem* myItem = group->addItem(myItemName, true);
-      itemsCreated.push_back(myItem);
-      mapOpcItems[myItem] = item;
-    } catch (OPCException& ex) {
-      QLOG_WARN() << "could not add OPC item" << QString::fromStdString(myItemName)
-                  << "reason:" << QString::fromStdString(ex.reasonString());
-    }
-  }
-  if (itemsCreated.size() != static_cast<size_t>(lstOpcItems.size())) {
-    QLOG_ERROR() << QString("opc reader") << itemsCreated.size() << "out of" << lstOpcItems.size()
-                 << "opc items created";
-  } else {
-    QLOG_INFO() << QString("opc reader") << itemsCreated.size() << "out of" << lstOpcItems.size()
-                << "opc items created";
-  }
+//   // add our items to group
+//   for (int i = 0; i < lstOpcItems.size(); i++) {
+//     OPCItem item = lstOpcItems.at(i);
+//     std::string myItemName = item.name.toStdString();
+//     try {
+//       COPCItem* myItem = group->addItem(myItemName, true);
+//       itemsCreated.push_back(myItem);
+//       mapOpcItems[myItem] = item;
+//     } catch (OPCException& ex) {
+//       QLOG_WARN() << "could not add OPC item" << QString::fromStdString(myItemName)
+//                   << "reason:" << QString::fromStdString(ex.reasonString());
+//     }
+//   }
+//   if (itemsCreated.size() != static_cast<size_t>(lstOpcItems.size())) {
+//     QLOG_ERROR() << QString("opc reader") << itemsCreated.size() << "out of" << lstOpcItems.size()
+//                  << "opc items created";
+//   } else {
+//     QLOG_INFO() << QString("opc reader") << itemsCreated.size() << "out of" << lstOpcItems.size()
+//                 << "opc items created";
+//   }
 
-  if (itemsCreated.empty()) {
-    QLOG_ERROR() << "opc reader: non of the querry items is available on server!";
-    QLOG_ERROR() << "opc reader: shutting down";
-    emit startOPCInfo(false);
-    return;
-  }
+//   if (itemsCreated.empty()) {
+//     QLOG_ERROR() << "opc reader: non of the querry items is available on server!";
+//     QLOG_ERROR() << "opc reader: shutting down";
+//     emit startOPCInfo(false);
+//     return;
+//   }
 
-  emit startOPCInfo(true);
-}
+//   emit startOPCInfo(true);
+// }

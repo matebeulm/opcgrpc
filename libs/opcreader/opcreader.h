@@ -16,7 +16,7 @@
 
 enum struct opc_data_types { UNKNOWN, STRING, FLOAT, BYTE, WORD, INT };
 
-struct opc_item {
+struct opc_data_point {
   std::string name;
   std::string label;
   opc_data_types dataType;
@@ -24,7 +24,8 @@ struct opc_item {
 
 class opc_reader {
  public:
-  explicit opc_reader(std::string init_file_name);
+  explicit opc_reader(std::string t_init_file_name);
+  bool init();
 
  protected:
   bool read_ini_file(std::string init_file_name);
@@ -33,6 +34,10 @@ class opc_reader {
   void query_server();
 
  private:
+  bool init_ok{false};
+  
+  std::string init_file_name;
+
   std::string host_name;
   std::string opc_server_name;
 
@@ -41,8 +46,8 @@ class opc_reader {
 
   bool report_response_time;
 
-  std::list<opc_item> lst_opc_items;
-  std::map<COPCItem*, opc_item> map_opc_items;
+  std::vector<opc_data_point> vec_opc_data;
+  std::map<COPCItem*, opc_data_point> map_opc_items;
 
   COPCHost* ptr_host{nullptr};
   COPCServer* ptr_opc_server{nullptr};

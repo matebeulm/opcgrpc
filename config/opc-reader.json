@@ -1,0 +1,21 @@
+{
+    "hostname": "localhost",
+    "opcServerName": "RSLinx OPC Server",
+    "opcItems": [
+        {
+            "name": "[XB_plc]N7:0",
+            "label": "line speed [m/min]",
+            "type": "int"
+        },
+        {
+            "name": "[XB_plc]N7:140",
+            "label": "model name",
+            "type": "int"
+        },
+        {
+            "name": "[NB_plc]N7:90",
+            "label": "carrier ID at entry buffer",
+            "type": "int"
+        }
+    ]
+}

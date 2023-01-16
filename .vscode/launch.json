@@ -9,11 +9,12 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
-            "args": [],
+            "args": ["-c", "config/opc-reader.json"],
             "stopAtEntry": false,
-            "cwd": "${fileDirname}",
+            "cwd": "${workspaceRoot}",
             "environment": [],
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "visualizerFile": "${workspaceFolder}/visu/nlohmann-json.natvis"
         }
 
     ]

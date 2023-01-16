@@ -66,3 +66,4 @@ find_package(nlohmann_json CONFIG REQUIRED)
 
 add_subdirectory(proto-grpc)
 add_subdirectory(libs)
+add_subdirectory(src)
