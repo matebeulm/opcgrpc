@@ -1,0 +1,36 @@
+{
+  "name": "onns-grpc",
+  "version-string": "1.0.0",
+  "dependencies": [
+    {
+      "name": "fmt",
+      "version>=": "9.1.0"
+    },
+    {
+      "name": "spdlog",
+      "version>=": "1.11.0"
+    },
+    {
+      "name": "bfgroup-lyra",
+      "version>=": "1.6"
+    },
+    {
+      "name": "asio",
+      "version>=": "1.24.0"
+    },
+    {
+      "name": "grpc",
+      "version>=": "1.50.1"
+    },
+    {
+      "name": "protobuf",
+      "version>=": "3.21.6",
+      "host": true
+    },
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.11.2"
+    }
+  ],
+  "builtin-baseline": "f9bea5d58186dc14e7e33132e43b52222147f51e"
+}
