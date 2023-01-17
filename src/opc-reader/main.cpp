@@ -1,6 +1,9 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <future>
+#include <csignal>
+#include <memory>
 
 #include <fmt/format.h>
 
@@ -11,6 +14,13 @@
 #include <lyra/lyra.hpp>
 
 #include <opcreader.h>
+
+std::promise<void> g_exit_requested;
+
+auto handler = []([[maybe_unused]] int s) {
+    spdlog::info("program stopped via SIGNAL {}", s);
+    g_exit_requested.set_value();
+};
 
 void setup_logging_new(std::string const& logger_name,
                        spdlog::level::level_enum level = spdlog::level::info) {
@@ -48,6 +58,11 @@ void setup_logging_new(std::string const& logger_name,
 }
 
 int main(int argc, char** argv) {
+
+  std::signal(SIGABRT, handler);
+  std::signal(SIGINT, handler);
+  std::signal(SIGTERM, handler);
+
   setup_logging_new("opc-reader");
   spdlog::info("{}", argv[0]);
 
@@ -75,8 +90,28 @@ int main(int argc, char** argv) {
   auto dbg_level = debug_messages ? spdlog::level::debug : spdlog::level::info;
   spdlog::set_level(dbg_level);
 
-  opc_reader reader(config_file);
-  auto success = reader.init();
+  std::unique_ptr<opc_reader> reader = std::make_unique<opc_reader>(config_file);
+  auto success = reader->init();
+
+  if (!success)
+  {
+    spdlog::error("could not init opc reader");
+    return EXIT_FAILURE;
+  }
+
+  // auto read_func = [&](){reader->query_server();};
+
+  // std::thread reader_thread(read_func);
+
+  reader->query_server();
+
+  auto f = g_exit_requested.get_future();
+  f.wait();
+
+  // spdlog::info("stopping server query thread...");
+  // reader->stop_query();
+  // reader_thread.join();
+  // spdlog::info("reader thread stopped");
 
   return EXIT_SUCCESS;
 }

@@ -1,11 +1,16 @@
 #ifndef OPCREADER_H
 #define OPCREADER_H
 
+#include <array>
 #include <list>
 #include <map>
 #include <string>
+#include <string_view>
+#include <atomic>
 
 #include <spdlog/spdlog.h>
+
+#include <nlohmann/json.hpp>
 
 #include <OPCClient.h>
 #include <OPCGroup.h>
@@ -26,23 +31,28 @@ class opc_reader {
  public:
   explicit opc_reader(std::string t_init_file_name);
   bool init();
+  void query_server();
+  void stop_query();
 
  protected:
   bool read_ini_file(std::string init_file_name);
 
   bool connect_to_server();
-  void query_server();
+
+  bool read_opc_item(nlohmann::json const& obj, opc_data_point& dp);
+
+  opc_data_types match_opc_data_types(std::string sdt);
 
  private:
   bool init_ok{false};
-  
+
   std::string init_file_name;
 
   std::string host_name;
   std::string opc_server_name;
 
-  unsigned long query_interval_ms;
-  unsigned long retry_interval_ms;
+  unsigned long query_interval_ms{2000};
+  unsigned long retry_interval_ms{2000};
 
   bool report_response_time;
 
@@ -54,6 +64,8 @@ class opc_reader {
   COPCGroup* ptr_group{nullptr};
 
   std::vector<COPCItem*> vec_opc_items;
+
+  std::atomic<bool> stop_querry_loop{false};
 };
 
 #endif  // OPCREADER_H

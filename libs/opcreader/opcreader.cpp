@@ -1,19 +1,20 @@
 #include "opcreader.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <variant>
 
 #include <asio/ip/host_name.hpp>
 
-#include <nlohmann/json.hpp>
-
 opc_reader::opc_reader(std::string t_init_file_name) : init_file_name(t_init_file_name) {}
 
 bool opc_reader::init() {
-  if (!read_ini_file(init_file_name))
-  {
+  if (!read_ini_file(init_file_name)) {
+    return false;
+  }
+  if (!connect_to_server()) {
     return false;
   }
   return true;
@@ -45,6 +46,59 @@ bool opc_reader::read_ini_file(std::string init_file_name) {
     spdlog::error("===============================");
   }
 
+  if (jall.contains("hostname")) {
+    host_name = jall["hostname"].get<std::string>();
+  } else {
+    spdlog::error("opc_reader: no entry for hostname");
+    return false;
+  }
+
+  if (jall.contains("opcServerName")) {
+    opc_server_name = jall["opcServerName"].get<std::string>();
+  } else {
+    spdlog::error("opc_reader: no entry for opcServerName");
+    return false;
+  }
+
+  if (!jall.contains("opcItems")) {
+    spdlog::error("opc_reader: no entry for opcItems");
+    return false;
+  }
+
+  auto jarr = jall.at("opcItems");
+  if (!jarr.is_array()) {
+    spdlog::error("opcItems must be array");
+    return false;
+  }
+
+  for (auto const& entry : jarr) {
+    if (!entry.is_object()) {
+      spdlog::error("entries in opcItems must be json objects");
+      return false;
+    }
+    if (!entry.contains("name")) {
+      spdlog::error("opc_reader: no entry for name in opcItems object {}", entry.dump());
+      return false;
+    }
+    if (!entry.contains("label")) {
+      spdlog::error("opc_reader: no entry for name in opcItems object {}", entry.dump());
+      return false;
+    }
+    if (!entry.contains("type")) {
+      spdlog::error("opc_reader: no entry for name in opcItems object {}", entry.dump());
+      return false;
+    }
+    opc_data_point pt;
+    pt.name = entry["name"].get<std::string>();
+    pt.label = entry["label"].get<std::string>();
+    auto str_type = entry["type"].get<std::string>();
+    pt.dataType = match_opc_data_types(str_type);
+    if (pt.dataType == opc_data_types::UNKNOWN) {
+      spdlog::error("opc_reader: invalid entry for data type in opcItems object {}", str_type);
+      return false;
+    }
+    vec_opc_data.push_back(pt);
+  }
   return true;
 }
 
@@ -94,16 +148,14 @@ bool opc_reader::connect_to_server() {
 
   // make group
   unsigned long refresh_rate;
-  ptr_group = ptr_opc_server->makeGroup(
-    "Group", true, static_cast<unsigned long>(query_interval_ms), refresh_rate, 0.0);
-  if (refresh_rate != static_cast<unsigned long>(query_interval_ms)) {
-    spdlog::warn("opc_reader: {} requested update rate was {} but got {}", opc_server_name,
-                 query_interval_ms, refresh_rate);
+  ptr_group = ptr_opc_server->makeGroup("Group", true, query_interval_ms, refresh_rate, 0.0);
+  if (refresh_rate != query_interval_ms) {
+    spdlog::warn("opc_reader: {} requested update rate was {} but got {}", opc_server_name, query_interval_ms,
+                 refresh_rate);
 
     if (refresh_rate > query_interval_ms) {
       query_interval_ms = refresh_rate;
-      spdlog::info("opc_reader: adjusting query interval time to {} milliseconds",
-                   query_interval_ms);
+      spdlog::info("opc_reader: adjusting query interval time to {} milliseconds", query_interval_ms);
     }
   }
 
@@ -114,17 +166,14 @@ bool opc_reader::connect_to_server() {
       vec_opc_items.push_back(new_item);
       map_opc_items[new_item] = data_point;
     } catch (OPCException& ex) {
-      spdlog::warn("opc_reader could not add OPC item <<{}>> reason: {}", data_point.name,
-                   ex.reasonString());
+      spdlog::warn("opc_reader could not add OPC item <<{}>> reason: {}", data_point.name, ex.reasonString());
     }
   }
 
   if (vec_opc_data.size() != vec_opc_data.size()) {
-    spdlog::warn("opc_reader only {} out of {} items created", vec_opc_data.size(),
-                 vec_opc_data.size());
+    spdlog::warn("opc_reader only {} out of {} items created", vec_opc_data.size(), vec_opc_data.size());
   } else {
-    spdlog::info("opc_reader only {} out of {} items created", vec_opc_data.size(),
-                 vec_opc_data.size());
+    spdlog::info("opc_reader only {} out of {} items created", vec_opc_data.size(), vec_opc_data.size());
   }
 
   if (vec_opc_items.empty()) {
@@ -133,10 +182,63 @@ bool opc_reader::connect_to_server() {
     return false;
   }
 
+  // SYNCED read on Group
+  COPCItem_DataMap opcData;
+  try {
+    spdlog::info("opc group read of {} items", vec_opc_items.size());
+    ptr_group->readSync(vec_opc_items, opcData, OPC_DS_DEVICE);
+  } catch (OPCException& ex) {
+    spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
+  }
+
   return true;
 }
 
-void opc_reader::query_server() {}
+void opc_reader::query_server() {
+  spdlog::info("starting server query loop with interval {} milliseconds", query_interval_ms);
+  while (!stop_querry_loop) {
+    spdlog::info("new opc server query");
+
+    // SYNCED read on Group
+    COPCItem_DataMap opcData;
+    try {
+      spdlog::info("opc group read of {} items", vec_opc_items.size());
+      ptr_group->readSync(vec_opc_items, opcData, OPC_DS_DEVICE);
+    } catch (OPCException& ex) {
+      spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(query_interval_ms));
+  }
+}
+
+void opc_reader::stop_query() {
+  stop_querry_loop = true;
+}
+
+bool opc_reader::read_opc_item(nlohmann::json const& obj, opc_data_point& dp) {
+  return false;
+}
+
+opc_data_types opc_reader::match_opc_data_types(std::string sdt) {
+  std::transform(sdt.begin(), sdt.end(), sdt.begin(), [](unsigned char c) { return std::toupper(c); });
+  if (sdt.compare("STRING") == 0) {
+    return opc_data_types::STRING;
+  }
+  if (sdt.compare("FLOAT") == 0) {
+    return opc_data_types::FLOAT;
+  }
+  if (sdt.compare("INT") == 0) {
+    return opc_data_types::INT;
+  }
+  if (sdt.compare("BYTE") == 0) {
+    return opc_data_types::BYTE;
+  }
+  if (sdt.compare("WORD") == 0) {
+    return opc_data_types::WORD;
+  }
+
+  return opc_data_types::UNKNOWN;
+}
 
 // OPCReader::OPCReader() {
 //   readerConnected = false;
@@ -300,7 +402,8 @@ void opc_reader::query_server() {}
 //         break;
 //       case OPCDataType::STRING: {
 //         int wslen = ::SysStringLen(data->vDataValue.bstrVal);
-//         int len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen, NULL,
+//         int len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen,
+//         NULL,
 //                                         0, NULL, NULL);
 
 //         std::string dblstr(len, '\0');
@@ -426,8 +529,8 @@ void opc_reader::query_server() {}
 
 // void OPCReader::startOPC() {
 //   spdlog::info("opc reader trying to establish connection to server {}", opcServerName);
-//   //   QLOG_INFO() << "opc reader: trying to establish connection to opc server" << opcServerName;
-//   COPCClient::init();
+//   //   QLOG_INFO() << "opc reader: trying to establish connection to opc server" <<
+//   opcServerName; COPCClient::init();
 
 //   // wir verbinden uns immer zu einem server der auf demselben rechner läuft
 //   std::string hostName = QHostInfo::localHostName();
@@ -439,9 +542,8 @@ void opc_reader::query_server() {}
 //     host->getListOfDAServers(IID_CATID_OPCDAServer20, localServerList);
 //   } catch (OPCException& ex) {
 //     QString strReason = QString::fromStdString(ex.reasonString());
-//     QLOG_WARN() << "could not connect to OPC server" << QString::fromStdString(ex.reasonString());
-//     emit startOPCInfo(false);
-//     return;
+//     QLOG_WARN() << "could not connect to OPC server" <<
+//     QString::fromStdString(ex.reasonString()); emit startOPCInfo(false); return;
 //   }
 //   if (localServerList.empty()) {
 //     QString msg = tr("no opc DA servers available on %1").arg(hostName);
@@ -475,16 +577,15 @@ void opc_reader::query_server() {}
 //     opcServer = host->connectDAServer(opcServerName.toStdString());
 //   } catch (OPCException& ex) {
 //     QString strReason = QString::fromStdString(ex.reasonString());
-//     QLOG_WARN() << "could not connect to OPC server" << QString::fromStdString(ex.reasonString());
-//     emit startOPCInfo(false);
-//     return;
+//     QLOG_WARN() << "could not connect to OPC server" <<
+//     QString::fromStdString(ex.reasonString()); emit startOPCInfo(false); return;
 //   }
 
 //   // Check status
 //   ServerStatus status;
 //   opcServer->getStatus(status);
-//   QString strStatus = QString("%1 server state is %2").arg(opcServerName).arg(status.dwServerState);
-//   if (status.dwServerState == 1) {
+//   QString strStatus = QString("%1 server state is
+//   %2").arg(opcServerName).arg(status.dwServerState); if (status.dwServerState == 1) {
 //     strStatus.append(" running");
 //   }
 //   QLOG_INFO() << QString("opc reader") << strStatus;
@@ -521,7 +622,8 @@ void opc_reader::query_server() {}
 //     }
 //   }
 //   if (itemsCreated.size() != static_cast<size_t>(lstOpcItems.size())) {
-//     QLOG_ERROR() << QString("opc reader") << itemsCreated.size() << "out of" << lstOpcItems.size()
+//     QLOG_ERROR() << QString("opc reader") << itemsCreated.size() << "out of" <<
+//     lstOpcItems.size()
 //                  << "opc items created";
 //   } else {
 //     QLOG_INFO() << QString("opc reader") << itemsCreated.size() << "out of" << lstOpcItems.size()

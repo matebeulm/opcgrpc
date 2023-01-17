@@ -1,20 +1,10 @@
 {
     "hostname": "localhost",
-    "opcServerName": "RSLinx OPC Server",
+    "opcServerName": "Matrikon.OPC.Simulation.1",
     "opcItems": [
         {
-            "name": "[XB_plc]N7:0",
+            "name": "Random.Real4",
             "label": "line speed [m/min]",
-            "type": "int"
-        },
-        {
-            "name": "[XB_plc]N7:140",
-            "label": "model name",
-            "type": "int"
-        },
-        {
-            "name": "[NB_plc]N7:90",
-            "label": "carrier ID at entry buffer",
             "type": "int"
         }
     ]
