@@ -1,9 +1,9 @@
-#include <filesystem>
-#include <iostream>
-#include <string>
-#include <future>
 #include <csignal>
+#include <filesystem>
+#include <future>
+#include <iostream>
 #include <memory>
+#include <string>
 
 #include <fmt/format.h>
 
@@ -18,12 +18,11 @@
 std::promise<void> g_exit_requested;
 
 auto handler = []([[maybe_unused]] int s) {
-    spdlog::info("program stopped via SIGNAL {}", s);
-    g_exit_requested.set_value();
+  spdlog::info("program stopped via SIGNAL {}", s);
+  g_exit_requested.set_value();
 };
 
-void setup_logging_new(std::string const& logger_name,
-                       spdlog::level::level_enum level = spdlog::level::info) {
+void setup_logging_new(std::string const& logger_name, spdlog::level::level_enum level = spdlog::level::info) {
   std::filesystem::path log_dir = std::filesystem::current_path();
   log_dir /= "logs";
   if (!std::filesystem::exists(log_dir)) {
@@ -38,9 +37,8 @@ void setup_logging_new(std::string const& logger_name,
     console_sink->set_level(level);
 
     auto log_file = fmt::format("logs/{}_log.txt", logger_name);
-    auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-      log_file, 1048576 * 5, 3,
-      true);  // last parameter is rotate_on_open
+    auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(log_file, 1048576 * 5, 3,
+                                                                            true);  // last parameter is rotate_on_open
     file_sink->set_level(level);
 
     spdlog::sinks_init_list sink_list = {file_sink, console_sink};
@@ -48,8 +46,8 @@ void setup_logging_new(std::string const& logger_name,
     spdlog::logger logger(logger_name, sink_list.begin(), sink_list.end());
 
     // or you can even set multi_sink logger as default logger
-    spdlog::set_default_logger(std::make_shared<spdlog::logger>(
-      logger_name, spdlog::sinks_init_list({console_sink, file_sink})));
+    spdlog::set_default_logger(
+      std::make_shared<spdlog::logger>(logger_name, spdlog::sinks_init_list({console_sink, file_sink})));
 
     spdlog::set_level(level);
   } catch (const spdlog::spdlog_ex& ex) {
@@ -58,7 +56,6 @@ void setup_logging_new(std::string const& logger_name,
 }
 
 int main(int argc, char** argv) {
-
   std::signal(SIGABRT, handler);
   std::signal(SIGINT, handler);
   std::signal(SIGTERM, handler);
@@ -70,8 +67,7 @@ int main(int argc, char** argv) {
   std::string config_file;
   bool debug_messages{false};
 
-  auto cli = lyra::help(show_help) |
-             lyra::opt(config_file, "config file")["-c"]["--config"]("config file").required() |
+  auto cli = lyra::help(show_help) | lyra::opt(config_file, "config file")["-c"]["--config"]("config file").required() |
              lyra::opt(debug_messages)["-d"]["--debug"]("show debug messages");
 
   auto parse_result = cli.parse({argc, argv});
@@ -90,28 +86,23 @@ int main(int argc, char** argv) {
   auto dbg_level = debug_messages ? spdlog::level::debug : spdlog::level::info;
   spdlog::set_level(dbg_level);
 
-  std::unique_ptr<opc_reader> reader = std::make_unique<opc_reader>(config_file);
-  auto success = reader->init();
+  opc_reader reader(config_file);
+  auto success = reader.init();
 
-  if (!success)
-  {
+  if (!success) {
     spdlog::error("could not init opc reader");
     return EXIT_FAILURE;
   }
 
-  // auto read_func = [&](){reader->query_server();};
-
-  // std::thread reader_thread(read_func);
-
-  reader->query_server();
+  std::thread reader_thread(&opc_reader::query_server, &reader);
 
   auto f = g_exit_requested.get_future();
   f.wait();
 
-  // spdlog::info("stopping server query thread...");
-  // reader->stop_query();
-  // reader_thread.join();
-  // spdlog::info("reader thread stopped");
+  spdlog::info("stopping server query thread...");
+  reader.stop_query();
+  reader_thread.join();
+  spdlog::info("reader thread stopped");
 
   return EXIT_SUCCESS;
 }

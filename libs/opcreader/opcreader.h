@@ -37,7 +37,7 @@ class opc_reader {
  protected:
   bool read_ini_file(std::string init_file_name);
 
-  bool connect_to_server();
+  // bool connect_to_server();
 
   bool read_opc_item(nlohmann::json const& obj, opc_data_point& dp);
 
@@ -57,13 +57,6 @@ class opc_reader {
   bool report_response_time;
 
   std::vector<opc_data_point> vec_opc_data;
-  std::map<COPCItem*, opc_data_point> map_opc_items;
-
-  COPCHost* ptr_host{nullptr};
-  COPCServer* ptr_opc_server{nullptr};
-  COPCGroup* ptr_group{nullptr};
-
-  std::vector<COPCItem*> vec_opc_items;
 
   std::atomic<bool> stop_querry_loop{false};
 };

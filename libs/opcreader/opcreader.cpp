@@ -14,9 +14,9 @@ bool opc_reader::init() {
   if (!read_ini_file(init_file_name)) {
     return false;
   }
-  if (!connect_to_server()) {
-    return false;
-  }
+  // if (!connect_to_server()) {
+  //   return false;
+  // }
   return true;
 }
 
@@ -102,7 +102,108 @@ bool opc_reader::read_ini_file(std::string init_file_name) {
   return true;
 }
 
-bool opc_reader::connect_to_server() {
+//   bool opc_reader::connect_to_server() {
+//   spdlog::info("opc_reader trying to establish connection to server {}", opc_server_name);
+//   COPCClient::init();
+
+//   // wir verbinden uns immer zu einem server der auf demselben rechner läuft
+//   std::string hostname = asio::ip::host_name();
+//   ptr_host = COPCClient::makeHost(hostname);
+
+//   // list available opc servers
+//   std::vector<std::string> vec_local_servers;
+//   try {
+//     ptr_host->getListOfDAServers(IID_CATID_OPCDAServer20, vec_local_servers);
+//   } catch (OPCException& ex) {
+//     spdlog::warn("opc_reader could not connect to OPC server: {}", ex.reasonString());
+//     return false;
+//   }
+
+//   if (vec_local_servers.empty()) {
+//     spdlog::error("opc_reader no opc DA servers available on {}", hostname);
+//     return false;
+//   }
+
+//   // gibt es unseren server
+//   if (std::ranges::find(vec_local_servers, opc_server_name) == vec_local_servers.end()) {
+//     return false;
+//   }
+
+//   // connect to opc server
+//   try {
+//     ptr_opc_server = ptr_host->connectDAServer(opc_server_name);
+//   } catch (OPCException& ex) {
+//     spdlog::warn("opc_reader: could not connect to OPC server {}", ex.reasonString());
+//     return false;
+//   }
+
+//   // Check status
+//   ServerStatus status;
+//   ptr_opc_server->getStatus(status);
+//   spdlog::info("{}: server state is {}", opc_server_name, status.dwServerState);
+//   if (status.dwServerState != OPCSERVERSTATE::OPC_STATUS_RUNNING) {
+//     spdlog::error("opc_reader: opc server state != RUNNING");
+//     return false;
+//   }
+
+//   // make group
+//   unsigned long refresh_rate;
+//   ptr_group = ptr_opc_server->makeGroup("Group", true, query_interval_ms, refresh_rate, 0.0);
+//   if (refresh_rate != query_interval_ms) {
+//     spdlog::warn("opc_reader: {} requested update rate was {} but got {}", opc_server_name, query_interval_ms,
+//                  refresh_rate);
+
+//     if (refresh_rate > query_interval_ms) {
+//       query_interval_ms = refresh_rate;
+//       spdlog::info("opc_reader: adjusting query interval time to {} milliseconds", query_interval_ms);
+//     }
+//   }
+
+//   // add our items to group
+//   for (auto data_point : vec_opc_data) {
+//     try {
+//       COPCItem* new_item = ptr_group->addItem(data_point.name, true);
+//       vec_opc_items.push_back(new_item);
+//       map_opc_items[new_item] = data_point;
+//     } catch (OPCException& ex) {
+//       spdlog::warn("opc_reader could not add OPC item <<{}>> reason: {}", data_point.name, ex.reasonString());
+//     }
+//   }
+
+//   if (vec_opc_data.size() != vec_opc_data.size()) {
+//     spdlog::warn("opc_reader only {} out of {} items created", vec_opc_data.size(), vec_opc_data.size());
+//   } else {
+//     spdlog::info("opc_reader only {} out of {} items created", vec_opc_data.size(), vec_opc_data.size());
+//   }
+
+//   if (vec_opc_items.empty()) {
+//     spdlog::error("opc_reader: non of the querry items is available on server!");
+//     spdlog::error("opc_reader: shutting down!");
+//     return false;
+//   }
+
+//   // SYNCED read on Group
+//   COPCItem_DataMap opcData;
+//   try {
+//     spdlog::info("opc group read of {} items", vec_opc_items.size());
+//     ptr_group->readSync(vec_opc_items, opcData, OPC_DS_DEVICE);
+//   } catch (OPCException& ex) {
+//     spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
+//   }
+
+//   return true;
+// }
+
+void opc_reader::query_server() {
+  spdlog::info("starting server query loop with interval {} milliseconds", query_interval_ms);
+
+  COPCHost* ptr_host{nullptr};
+  COPCServer* ptr_opc_server{nullptr};
+  COPCGroup* ptr_group{nullptr};
+
+  std::map<COPCItem*, opc_data_point> map_opc_items;
+  std::vector<COPCItem*> vec_opc_items;
+
   spdlog::info("opc_reader trying to establish connection to server {}", opc_server_name);
   COPCClient::init();
 
@@ -116,17 +217,17 @@ bool opc_reader::connect_to_server() {
     ptr_host->getListOfDAServers(IID_CATID_OPCDAServer20, vec_local_servers);
   } catch (OPCException& ex) {
     spdlog::warn("opc_reader could not connect to OPC server: {}", ex.reasonString());
-    return false;
+    return;
   }
 
   if (vec_local_servers.empty()) {
     spdlog::error("opc_reader no opc DA servers available on {}", hostname);
-    return false;
+    return;
   }
 
   // gibt es unseren server
   if (std::ranges::find(vec_local_servers, opc_server_name) == vec_local_servers.end()) {
-    return false;
+    return;
   }
 
   // connect to opc server
@@ -134,7 +235,7 @@ bool opc_reader::connect_to_server() {
     ptr_opc_server = ptr_host->connectDAServer(opc_server_name);
   } catch (OPCException& ex) {
     spdlog::warn("opc_reader: could not connect to OPC server {}", ex.reasonString());
-    return false;
+    return;
   }
 
   // Check status
@@ -143,7 +244,7 @@ bool opc_reader::connect_to_server() {
   spdlog::info("{}: server state is {}", opc_server_name, status.dwServerState);
   if (status.dwServerState != OPCSERVERSTATE::OPC_STATUS_RUNNING) {
     spdlog::error("opc_reader: opc server state != RUNNING");
-    return false;
+    return;
   }
 
   // make group
@@ -179,23 +280,10 @@ bool opc_reader::connect_to_server() {
   if (vec_opc_items.empty()) {
     spdlog::error("opc_reader: non of the querry items is available on server!");
     spdlog::error("opc_reader: shutting down!");
-    return false;
+    return;
   }
 
-  // SYNCED read on Group
-  COPCItem_DataMap opcData;
-  try {
-    spdlog::info("opc group read of {} items", vec_opc_items.size());
-    ptr_group->readSync(vec_opc_items, opcData, OPC_DS_DEVICE);
-  } catch (OPCException& ex) {
-    spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
-  }
-
-  return true;
-}
-
-void opc_reader::query_server() {
-  spdlog::info("starting server query loop with interval {} milliseconds", query_interval_ms);
+  // actual thread loop
   while (!stop_querry_loop) {
     spdlog::info("new opc server query");
 
@@ -207,6 +295,38 @@ void opc_reader::query_server() {
     } catch (OPCException& ex) {
       spdlog::warn("reading opc items failed, reason: {}", ex.reasonString());
     }
+
+    POSITION pos = opcData.GetStartPosition();
+    while (pos != nullptr) {
+      COPCItem* item = opcData.GetKeyAt(pos);
+      // std::string itemName = item->getName();
+      opc_data_point pt = map_opc_items.at(item);
+      OPCItemData* data = opcData.GetNextValue(pos);
+      std::variant<int, double, std::string> var;
+      switch (pt.dataType) {
+        case opc_data_types::BYTE:
+        case opc_data_types::WORD:
+        case opc_data_types::INT:
+          var = data->vDataValue.iVal;
+          spdlog::trace("name: {} --> value: {}", item->getName(), std::get<int>(var));
+          break;
+        case opc_data_types::STRING: {
+          int wslen = ::SysStringLen(data->vDataValue.bstrVal);
+          int len = ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen, NULL, 0, NULL, NULL);
+
+          std::string dblstr(len, '\0');
+          len =
+            ::WideCharToMultiByte(CP_ACP, 0, (wchar_t*)data->vDataValue.bstrVal, wslen, &dblstr[0], len, NULL, NULL);
+          var = dblstr;
+        }
+          spdlog::info("name: {} --> value: {}", item->getName(), std::get<std::string>(var));
+          break;
+          case opc_data_types::FLOAT:
+          var = data->vDataValue.fltVal;
+          spdlog::info("name: {} --> value: {}", item->getName(), std::get<double>(var));
+      }
+    }
+
     std::this_thread::sleep_for(std::chrono::milliseconds(query_interval_ms));
   }
 }
